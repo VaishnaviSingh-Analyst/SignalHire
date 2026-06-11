@@ -13,7 +13,7 @@ from config import (
     PRODUCTION_SIGNALS,
     RETRIEVAL_SIGNALS,
 )
-from signals import _build_skill_dict
+from signals import _build_skill_dict, skill_matches_keyword
 
 SNIPPET_RADIUS = 60
 
@@ -58,7 +58,7 @@ def _match_criterion(keywords: List[str], skill_dict: Dict[str, float], blob: st
     for kw in keywords:
         kw_lower = kw.lower().strip()
         for skill_name, skill_weight in skill_dict.items():
-            if kw_lower in skill_name or skill_name in kw_lower:
+            if skill_matches_keyword(kw_lower, skill_name):
                 if best is None or skill_weight > best["strength"]:
                     best = {
                         "source": "skill",

@@ -41,16 +41,33 @@ def _build_skill_dict(candidate: dict) -> Dict[str, float]:
     return result
 
 
+_TOKEN_SPLIT = re.compile(r"[^a-z0-9+#]+")
+
+
+def skill_matches_keyword(kw: str, skill_name: str) -> bool:
+    """Substring match in either direction, but short strings (<4 chars)
+    only match as exact tokens — otherwise skill \"ai\" ⊂ \"openai embedding\"
+    or keyword \"map\" ⊂ \"google maps\" produce false criterion hits."""
+    if len(kw) >= 4 and kw in skill_name:
+        return True
+    if len(kw) < 4 and kw in _TOKEN_SPLIT.split(skill_name):
+        return True
+    if len(skill_name) >= 4 and skill_name in kw:
+        return True
+    return False
+
+
 def _keyword_match_score(
     keywords: list, skill_dict: Dict[str, float], text_blob: str
 ) -> float:
     score = 0.0
+    blob_lower = text_blob.lower()
     for kw in keywords:
         kw_lower = kw.lower().strip()
         for skill_name, skill_weight in skill_dict.items():
-            if kw_lower in skill_name or skill_name in kw_lower:
+            if skill_matches_keyword(kw_lower, skill_name):
                 score = max(score, skill_weight)
-        if kw_lower in text_blob.lower():
+        if kw_lower in blob_lower:
             score = max(score, 0.3)
     return score
 
