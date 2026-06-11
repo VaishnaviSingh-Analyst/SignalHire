@@ -203,6 +203,14 @@ def normalized_weights() -> dict:
     return {k: v / total for k, v in raw.items()}
 
 
+def _reset_weights():
+    # Runs as an on_click callback, *before* the next script run — writing
+    # widget keys here is legal, while doing it inline after the sliders
+    # are instantiated raises StreamlitAPIException.
+    for name in WEIGHTS:
+        st.session_state[f"w_{name}"] = float(WEIGHTS[name])
+
+
 # ------------------------------------------------------------------- sidebar
 
 def render_sidebar(artifacts_ready: bool, n_candidates: int, n_disqualified: int) -> dict:
@@ -241,10 +249,7 @@ def render_sidebar(artifacts_ready: bool, n_candidates: int, n_disqualified: int
                 key=f"w_{name}",
             )
         weights = normalized_weights()
-        if st.button("Reset weights", width="stretch"):
-            for name in WEIGHTS:
-                st.session_state[f"w_{name}"] = float(WEIGHTS[name])
-            st.rerun()
+        st.button("Reset weights", width="stretch", on_click=_reset_weights)
         st.caption(
             "Effective (normalized): "
             + " · ".join(f"{SUBSCORE_LABELS[k].split()[0]} {v:.0%}" for k, v in weights.items())
