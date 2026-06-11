@@ -5,15 +5,19 @@ single matrix multiply, so weight sliders and custom job descriptions
 re-rank instantly without any pipeline rerun.
 """
 
+import csv
+import io
 import json
 import pickle
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from config import (
     ARTIFACTS_DIR,
+    CANDIDATES_PATH,
     EMBEDDING_MODEL,
     TOP_K,
     WEIGHTS,
@@ -93,6 +97,41 @@ def cached_candidates(ids: tuple) -> dict:
     return load_candidates_by_ids(ids)
 
 
+@st.cache_data(show_spinner="Building pool demographics (one-time pass) ...")
+def pool_demographics() -> pd.DataFrame:
+    """Light per-candidate demographics for the fairness audit. Extracted
+    once from the JSONL and cached on disk so later sessions load instantly."""
+    cache_path = ARTIFACTS_DIR / "demographics.csv"
+    if cache_path.exists():
+        return pd.read_csv(cache_path)
+    rows = []
+    with open(CANDIDATES_PATH, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                c = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            profile = c.get("profile", {})
+            tiers = [
+                str(e.get("tier", "unknown")) for e in c.get("education", []) if e.get("tier")
+            ]
+            best_tier = min(tiers) if tiers else "unknown"
+            rows.append(
+                {
+                    "candidate_id": c.get("candidate_id", ""),
+                    "country": profile.get("country", "unknown") or "unknown",
+                    "yoe": profile.get("years_of_experience", 0) or 0,
+                    "edu_tier": best_tier,
+                }
+            )
+    df = pd.DataFrame(rows)
+    df.to_csv(cache_path, index=False)
+    return df
+
+
 @st.cache_data(show_spinner=False)
 def cached_stability(weights_key: tuple, jd_key: str, k: int) -> dict:
     a = load_artifacts()
@@ -159,11 +198,11 @@ def render_sidebar(artifacts_ready: bool, n_candidates: int, n_disqualified: int
         )
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("Apply JD", type="primary", use_container_width=True, disabled=not jd_text.strip()):
+            if st.button("Apply JD", type="primary", width="stretch", disabled=not jd_text.strip()):
                 st.session_state["jd_embedding_override"] = embed_text(jd_text.strip())
                 st.session_state["jd_label"] = jd_text.strip()[:60]
         with col_b:
-            if st.button("Default JD", use_container_width=True):
+            if st.button("Default JD", width="stretch"):
                 st.session_state.pop("jd_embedding_override", None)
                 st.session_state.pop("jd_label", None)
         if "jd_label" in st.session_state:
@@ -181,7 +220,7 @@ def render_sidebar(artifacts_ready: bool, n_candidates: int, n_disqualified: int
                 key=f"w_{name}",
             )
         weights = normalized_weights()
-        if st.button("Reset weights", use_container_width=True):
+        if st.button("Reset weights", width="stretch"):
             for name in WEIGHTS:
                 st.session_state[f"w_{name}"] = float(WEIGHTS[name])
             st.rerun()
@@ -349,6 +388,283 @@ def render_shortlist(artifacts, top_idx, scores, semantic_sim, controls, stabili
             st.caption(f"*{generate_reasoning(cand, ev)}*")
 
 
+# -------------------------------------------------------------- insights tab
+
+PLOT_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(26,29,39,0.6)",
+    font=dict(color=MUTED),
+    margin=dict(l=40, r=20, t=40, b=40),
+)
+
+
+def render_insights(artifacts, top_idx, scores):
+    ids = artifacts["candidate_ids"]
+
+    st.subheader("Score landscape")
+    pool_n = min(5000, len(scores))
+    top_pool = np.sort(scores)[-pool_n:]
+    cutoff = scores[top_idx].min()
+    fig = go.Figure(go.Histogram(x=top_pool, nbinsx=60, marker_color=ACCENT, opacity=0.85))
+    fig.add_vline(x=float(cutoff), line_dash="dash", line_color=RED,
+                  annotation_text="top-100 cutoff", annotation_font_color=RED)
+    fig.update_layout(
+        height=300, xaxis_title="Composite score", yaxis_title=f"Count (top {pool_n:,})",
+        **PLOT_LAYOUT,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+    st.subheader("Fairness audit — shortlist vs candidate pool")
+    st.caption(
+        "If the shortlist's distribution diverges wildly from the qualified pool, "
+        "the scoring may be encoding bias. Blind screening mode hides identifying "
+        "details during review."
+    )
+    demo = pool_demographics()
+    top_ids = {str(ids[i]) for i in top_idx}
+    demo_top = demo[demo["candidate_id"].isin(top_ids)]
+
+    col1, col2 = st.columns(2)
+    with col1:
+        pool_tier = demo["edu_tier"].value_counts(normalize=True).sort_index()
+        top_tier = demo_top["edu_tier"].value_counts(normalize=True).sort_index()
+        fig = go.Figure()
+        fig.add_bar(name="Pool (100K)", x=pool_tier.index, y=pool_tier.values, marker_color=MUTED)
+        fig.add_bar(name="Shortlist", x=top_tier.index, y=top_tier.values, marker_color=ACCENT)
+        fig.update_layout(title="Education tier", barmode="group", height=300,
+                          yaxis_tickformat=".0%", **PLOT_LAYOUT)
+        st.plotly_chart(fig, width="stretch")
+    with col2:
+        top_countries = demo["country"].value_counts().head(8).index
+        pool_c = (
+            demo[demo["country"].isin(top_countries)]["country"].value_counts(normalize=True)
+        )
+        top_c = (
+            demo_top[demo_top["country"].isin(top_countries)]["country"]
+            .value_counts(normalize=True)
+            .reindex(pool_c.index)
+            .fillna(0)
+        )
+        fig = go.Figure()
+        fig.add_bar(name="Pool (100K)", x=pool_c.index, y=pool_c.values, marker_color=MUTED)
+        fig.add_bar(name="Shortlist", x=top_c.index, y=top_c.values, marker_color=GREEN)
+        fig.update_layout(title="Country (top 8)", barmode="group", height=300,
+                          yaxis_tickformat=".0%", **PLOT_LAYOUT)
+        st.plotly_chart(fig, width="stretch")
+
+    fig = go.Figure()
+    fig.add_histogram(x=demo["yoe"], histnorm="probability", nbinsx=40,
+                      name="Pool (100K)", marker_color=MUTED, opacity=0.6)
+    fig.add_histogram(x=demo_top["yoe"], histnorm="probability", nbinsx=40,
+                      name="Shortlist", marker_color=AMBER, opacity=0.7)
+    fig.update_layout(title="Years of experience", barmode="overlay", height=300,
+                      yaxis_tickformat=".0%", **PLOT_LAYOUT)
+    st.plotly_chart(fig, width="stretch")
+
+
+# -------------------------------------------------------------- integrity tab
+
+def render_integrity(artifacts):
+    disqualified = artifacts.get("disqualified", [])
+    honeypots = [d for d in disqualified if d.get("type") == "HONEYPOT"]
+    ghosts = [d for d in disqualified if d.get("type") == "GHOST"]
+
+    st.subheader("Adversarial profile detection")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Disqualified", len(disqualified))
+    c2.metric("🍯 Honeypots", len(honeypots), help="Claimed experience impossible vs career timeline")
+    c3.metric("👻 Ghosts", len(ghosts), help="Near-empty profile, nothing verified")
+
+    st.markdown(
+        "The dataset seeds fake profiles to catch rankers that trust self-reported "
+        "numbers. These never reach scoring — they are disqualified during ingest."
+    )
+
+    if honeypots:
+        st.markdown("#### Caught in the act")
+        example_ids = tuple(d["id"] for d in honeypots[:3])
+        examples = cached_candidates(example_ids)
+        for d in honeypots[:3]:
+            cand = examples.get(d["id"])
+            if not cand:
+                continue
+            profile = cand.get("profile", {})
+            career = cand.get("career_history", [])
+            starts = [r.get("start_date", "")[:4] for r in career if r.get("start_date")]
+            earliest = min(starts) if starts else "?"
+            st.markdown(
+                f"> **{d['id']}** claims **{profile.get('years_of_experience', '?')} years** "
+                f"of experience, but their earliest role starts in **{earliest}**. "
+                f"_{d.get('reason', '')}_"
+            )
+
+    if disqualified:
+        with st.expander("Full disqualification log"):
+            st.dataframe(pd.DataFrame(disqualified), width="stretch", hide_index=True)
+
+
+# --------------------------------------------------------------- compare tab
+
+def render_compare(artifacts, top_idx, scores, semantic_sim, anonymized: bool):
+    ids = artifacts["candidate_ids"]
+    subs = artifacts["subscores"]
+    top_ids = [str(ids[i]) for i in top_idx]
+    candidates_by_id = cached_candidates(tuple(top_ids))
+
+    def fmt(cid):
+        cand = candidates_by_id.get(cid, {})
+        rank = top_ids.index(cid) + 1
+        return candidate_display_name(cand, rank, anonymized) if cand else cid
+
+    st.subheader("Side-by-side comparison")
+    selected = st.multiselect(
+        "Pick 2–4 candidates from the shortlist",
+        options=top_ids,
+        default=top_ids[:3],
+        max_selections=4,
+        format_func=fmt,
+    )
+    if len(selected) < 2:
+        st.info("Select at least two candidates to compare.")
+        return
+
+    axes = list(SUBSCORE_LABELS.values())
+    palette = [ACCENT, GREEN, AMBER, RED]
+    fig = go.Figure()
+    for color, cid in zip(palette, selected):
+        i = top_ids.index(cid)
+        gi = top_idx[i]
+        ss = subs.get(cid, {})
+        values = [ss.get(k, 0.0) for k in SUBSCORE_ORDER] + [float(semantic_sim[gi])]
+        fig.add_trace(
+            go.Scatterpolar(
+                r=values + values[:1],
+                theta=axes + axes[:1],
+                name=f"#{i + 1} " + (cid if anonymized else
+                      candidates_by_id.get(cid, {}).get("profile", {}).get("anonymized_name", cid)),
+                line=dict(color=color),
+                fill="toself",
+                opacity=0.55,
+            )
+        )
+    fig.update_layout(
+        polar=dict(
+            bgcolor="rgba(26,29,39,0.6)",
+            radialaxis=dict(range=[0, 1], showticklabels=False, gridcolor="#2D3148"),
+            angularaxis=dict(gridcolor="#2D3148"),
+        ),
+        height=460,
+        **PLOT_LAYOUT,
+    )
+    st.plotly_chart(fig, width="stretch")
+
+    cols = st.columns(len(selected))
+    for col, cid in zip(cols, selected):
+        cand = candidates_by_id.get(cid)
+        if not cand:
+            continue
+        i = top_ids.index(cid)
+        with col:
+            st.markdown(f"**#{i + 1} · score {scores[top_idx[i]]:.3f}**")
+            ev = collect_evidence(cand)
+            st.caption(generate_reasoning(cand, ev))
+            missing = ", ".join(m["criterion"] for m in ev["missing_must_haves"]) or "none"
+            st.markdown(f"Missing must-haves: *{missing}*")
+
+
+# ---------------------------------------------------------------- export tab
+
+def build_submission_csv(top_idx, scores, ids, candidates_by_id) -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["candidate_id", "rank", "score", "reasoning"])
+    for rank_pos, i in enumerate(top_idx):
+        cid = str(ids[i])
+        cand = candidates_by_id.get(cid)
+        writer.writerow(
+            [cid, rank_pos + 1, f"{round(float(scores[i]), 3):.3f}", generate_reasoning(cand or {})]
+        )
+    return buf.getvalue()
+
+
+def build_outreach_pack(top_idx, scores, ids, candidates_by_id, n: int = 10) -> str:
+    lines = ["# Recruiter Outreach Pack", ""]
+    for rank_pos, i in enumerate(top_idx[:n]):
+        cid = str(ids[i])
+        cand = candidates_by_id.get(cid)
+        if not cand:
+            continue
+        profile = cand.get("profile", {})
+        signals = cand.get("redrob_signals", {})
+        ev = collect_evidence(cand)
+        hooks = [m["detail"] for m in ev["matched"] if m["source"] == "skill"][:3]
+        hook_str = ", ".join(dict.fromkeys(hooks)) or "your ML background"
+        name = profile.get("anonymized_name", cid)
+        notice = signals.get("notice_period_days", 90) or 90
+        lines += [
+            f"## #{rank_pos + 1} — {name} ({cid}) · score {scores[i]:.3f}",
+            "",
+            f"*{generate_reasoning(cand, ev)}*",
+            "",
+            "**Draft outreach:**",
+            "",
+            f"> Hi {name.split()[0] if name else 'there'}, your experience with "
+            f"{hook_str} at {profile.get('current_company', 'your current company')} "
+            f"stood out for a Senior AI Engineer role we're hiring for — the team "
+            f"builds production retrieval and ranking systems. Given your "
+            f"{notice}-day notice period, the timing could work well. "
+            f"Open to a quick chat this week?",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+def render_export(artifacts, top_idx, scores, weights):
+    ids = artifacts["candidate_ids"]
+    top_ids = [str(ids[i]) for i in top_idx]
+    candidates_by_id = cached_candidates(tuple(top_ids))
+
+    st.subheader("Take the shortlist with you")
+    st.caption("Exports reflect the current weights, JD and diversity settings.")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.download_button(
+            "📄 Submission CSV",
+            data=build_submission_csv(top_idx, scores, ids, candidates_by_id),
+            file_name="submission.csv",
+            mime="text/csv",
+            width="stretch",
+        )
+        st.caption("Challenge-format CSV (id, rank, score, evidence-based reasoning).")
+    with col2:
+        st.download_button(
+            "✉️ Outreach pack (top 10)",
+            data=build_outreach_pack(top_idx, scores, ids, candidates_by_id),
+            file_name="outreach_pack.md",
+            mime="text/markdown",
+            width="stretch",
+        )
+        st.caption("Personalized first-touch drafts citing each candidate's actual skills.")
+    with col3:
+        config_json = json.dumps(
+            {
+                "weights": weights,
+                "jd": st.session_state.get("jd_label", "default"),
+                "shortlist": top_ids,
+            },
+            indent=2,
+        )
+        st.download_button(
+            "⚙️ Ranking config JSON",
+            data=config_json,
+            file_name="ranking_config.json",
+            mime="application/json",
+            width="stretch",
+        )
+        st.caption("Reproducible snapshot: weights, JD and resulting shortlist.")
+
+
 # --------------------------------------------------------------- main layout
 
 def main():
@@ -379,12 +695,21 @@ def main():
     jd_key = st.session_state.get("jd_label", "__default__")
     stability = cached_stability(weights_key, jd_key, TOP_K)
 
-    tab_shortlist, tab_method = st.tabs(["🏆 Shortlist", "📖 Methodology"])
+    tabs = st.tabs(
+        ["🏆 Shortlist", "⚖️ Compare", "📊 Insights", "🛡️ Integrity", "📤 Export", "📖 Methodology"]
+    )
 
-    with tab_shortlist:
+    with tabs[0]:
         render_shortlist(artifacts, top_idx, scores, semantic_sim, controls, stability)
-
-    with tab_method:
+    with tabs[1]:
+        render_compare(artifacts, top_idx, scores, semantic_sim, controls["anonymized"])
+    with tabs[2]:
+        render_insights(artifacts, top_idx, scores)
+    with tabs[3]:
+        render_integrity(artifacts)
+    with tabs[4]:
+        render_export(artifacts, top_idx, scores, controls["weights"])
+    with tabs[5]:
         render_methodology(controls["weights"])
 
 
