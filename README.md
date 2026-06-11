@@ -123,13 +123,25 @@ python rank.py
 
 ### 3. Streamlit Dashboard
 
-Interactive UI to explore ranking results, score distributions, and methodology.
+A live, explainable ranking workbench — every control re-ranks all 100K candidates
+in milliseconds because scoring is a single matrix multiply over precomputed artifacts.
 
 ```bash
 streamlit run app.py
 ```
 
-**Tabs:** Ranked Shortlist → Score Explorer → Methodology → Disqualified Audit
+| Feature | What it does |
+|---|---|
+| **Live weight sliders** | Drag any signal weight and watch the shortlist reshuffle instantly |
+| **Custom JD search** | Paste any job description or plain-English query ("RAG engineer, short notice") — it's embedded and ranked on the fly |
+| **Evidence-cited cards** | Each candidate shows *which* JD requirement matched *which* exact skill or profile sentence, plus flagged gaps |
+| **Stability badges** | Each candidate's rank is stress-tested under 200 random ±20% weight perturbations — "stable 98%" means the pick isn't an artifact of one weight choice |
+| **Diversity (MMR) slider** | Penalizes near-duplicate profiles so the shortlist covers distinct archetypes |
+| **Blind screening mode** | Hides names, companies and institutions to reduce reviewer bias |
+| **Compare** | Radar-chart side-by-side of up to 4 candidates |
+| **Insights** | Score landscape + fairness audit (shortlist vs pool by education tier, country, YoE) |
+| **Integrity** | Honeypot/ghost showcase with concrete caught examples |
+| **Export** | Submission CSV, personalized outreach pack, reproducible ranking config |
 
 ### Docker
 
@@ -178,8 +190,8 @@ All sub-scores normalized to [0, 1].
 **Career Quality:**
 - Non-consulting role: +0.30
 - ML/AI title at 50+ company: +0.15
-- Median tenure ≥24mo: +0.20
-- Upward title progression: +0.20
+- Median tenure ≥36mo: +0.25 (≥24mo: +0.20, ≥18mo: +0.05)
+- Upward title progression: +0.20 (career sorted chronologically before comparing)
 
 **Availability:**
 - Open to work: +0.25
@@ -221,9 +233,12 @@ SignalHire/
 ├── config.py                # Weights, paths, keyword lists, penalties
 ├── disqualify.py            # Honeypot/ghost/research detection
 ├── signals.py               # 4 sub-score functions
+├── evidence.py              # Evidence extraction + honest reasoning generation
+├── engine.py                # Vectorized re-ranking, MMR diversity, stability analysis
 ├── precompute.py            # Phase A: ingest → embed → score → serialize
 ├── rank.py                  # Phase B: load → score → top-100 → CSV
-├── app.py                   # Streamlit dashboard
+├── app.py                   # Interactive Streamlit dashboard
+├── .streamlit/config.toml   # Dark theme
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Python 3.10-slim container
 ├── data/
@@ -255,10 +270,14 @@ SignalHire/
 
 ```csv
 candidate_id,rank,score,reasoning
-CAND_0081846,1,0.857,6.7yr Lead AI Engineer with production Embeddings + Information Retrieval experience at Paytm; actively looking, 73% response rate, 30d notice.
-CAND_0055905,2,0.856,8.1yr Senior Machine Learning Engineer with production Vector Search + Elasticsearch experience at Rephrase.ai; ...
+CAND_0081846,1,0.870,"6.7yr Lead AI Engineer at Razorpay; strong match on embeddings, vector search, python, information retrieval; production evidence (serving, ndcg); actively looking, 73% response rate, 30d notice."
+CAND_0055905,2,0.869,"8.1yr Senior Machine Learning Engineer at Flipkart; strong match on embeddings, vector search, python, information retrieval; production evidence (deployed, serving); actively looking, 87% response rate."
 ...
 ```
+
+Reasoning strings are **evidence-based**: skills and production signals are only
+claimed when they actually appear in the profile, and missing must-haves are
+called out as gaps.
 
 - **100 rows** (ranks 1–100)
 - **Scores non-increasing** by rank

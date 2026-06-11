@@ -9,6 +9,7 @@ import csv
 import io
 import json
 import pickle
+import time
 
 import numpy as np
 import pandas as pd
@@ -53,6 +54,26 @@ SUBSCORE_LABELS = {
     "seniority_fit": "Seniority fit",
     "semantic_similarity": "Semantic match",
 }
+
+GLOBAL_CSS = """
+<style>
+  .block-container { padding-top: 2.2rem; }
+  div[data-testid="stMetric"] {
+    background: #1A1D27;
+    border: 1px solid #262b3d;
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  div[data-testid="stExpander"] details {
+    border: 1px solid #262b3d;
+    border-radius: 10px;
+    background: #161925;
+  }
+  button[data-baseweb="tab"] { font-size: 0.95rem; }
+  .stTabs [data-baseweb="tab-list"] { gap: 6px; }
+  h1 { letter-spacing: -0.02em; }
+</style>
+"""
 
 
 # ---------------------------------------------------------------- data layer
@@ -680,7 +701,8 @@ def main():
     n_disq = len(artifacts["disqualified"]) if artifacts_ready else 0
     controls = render_sidebar(artifacts_ready, n, n_disq)
 
-    st.title("RecruiterIQ")
+    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+    st.title("🎯 RecruiterIQ")
     st.caption(
         "Explainable AI candidate ranking · 100K profiles re-ranked live · Redrob AI Challenge"
     )
@@ -688,12 +710,26 @@ def main():
     if not artifacts_ready:
         st.stop()
 
+    t0 = time.perf_counter()
     top_idx, scores, semantic_sim, subscore_matrix = run_ranking(
         artifacts, controls["weights"], controls["diversity"]
     )
+    rank_ms = (time.perf_counter() - t0) * 1000
     weights_key = tuple(sorted(controls["weights"].items()))
     jd_key = st.session_state.get("jd_label", "__default__")
     stability = cached_stability(weights_key, jd_key, TOP_K)
+
+    avg_stability = float(np.mean([stability.get(int(i), 0.0) for i in top_idx]))
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Pool ranked", f"{n:,}", help="Candidates scored on this rerun")
+    k2.metric("Re-rank time", f"{rank_ms:.0f} ms", help="Full 100K re-score on this interaction")
+    k3.metric("Top score", f"{scores[top_idx[0]]:.3f}")
+    k4.metric("Top-100 cutoff", f"{scores[top_idx].min():.3f}")
+    k5.metric(
+        "Shortlist stability",
+        f"{avg_stability:.0%}",
+        help="Average fraction of ±20% weight perturbations in which shortlist members stay top-100",
+    )
 
     tabs = st.tabs(
         ["🏆 Shortlist", "⚖️ Compare", "📊 Insights", "🛡️ Integrity", "📤 Export", "📖 Methodology"]
