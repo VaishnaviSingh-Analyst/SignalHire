@@ -33,6 +33,26 @@ def parse_year(date_str: Optional[str]) -> Optional[int]:
     return None
 
 
+def sort_career_chronologically(career: list) -> list:
+    """Oldest role first. The dataset lists roles newest-first, so any
+    positional logic must sort explicitly instead of trusting order."""
+    def key(role):
+        start = str(role.get("start_date") or "")
+        year = parse_year(start)
+        # ISO date strings sort lexicographically; fall back to year only.
+        return (year if year is not None else 0, start)
+    return sorted(career, key=key)
+
+
+def _latest_role(career: list) -> Optional[dict]:
+    if not career:
+        return None
+    for role in career:
+        if role.get("is_current", False):
+            return role
+    return sort_career_chronologically(career)[-1]
+
+
 def _earliest_role_start_year(candidate: dict) -> Optional[int]:
     career = candidate.get("career_history", [])
     if not career:
@@ -96,7 +116,7 @@ def _is_no_code_18mo(candidate: dict) -> bool:
     career = candidate.get("career_history", [])
     if not career:
         return True
-    latest = career[-1]
+    latest = _latest_role(career)
     if latest.get("is_current", False):
         return False
     end_date = latest.get("end_date", "")

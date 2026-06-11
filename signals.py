@@ -17,7 +17,7 @@ from config import (
     TIER_1_INSTITUTIONS,
     TIER_2_INSTITUTIONS,
 )
-from disqualify import parse_year
+from disqualify import parse_year, sort_career_chronologically
 
 
 def _build_skill_dict(candidate: dict) -> Dict[str, float]:
@@ -161,7 +161,7 @@ def _median_tenure_months(candidate: dict) -> float:
 
 
 def _has_upward_title_progression(candidate: dict) -> bool:
-    career = candidate.get("career_history", [])
+    career = sort_career_chronologically(candidate.get("career_history", []))
     if len(career) < 2:
         return False
     first_title = career[0].get("title", "")
