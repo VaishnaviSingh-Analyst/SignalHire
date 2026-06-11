@@ -170,19 +170,18 @@ def compute_career_quality(candidate: dict) -> float:
         return 0.0
 
     non_consulting = False
-    all_consulting = True
+    consulting_count = 0
+    named_company_count = 0
     has_ml_title = False
 
     for role in career:
         company = (role.get("company", "") or "").lower().strip()
-        is_consulting = any(firm in company for firm in CONSULTING_FIRMS)
-        if not is_consulting and company:
-            non_consulting = True
-            all_consulting = False
-        elif is_consulting:
-            pass
-        elif company:
-            all_consulting = False
+        if company:
+            named_company_count += 1
+            if any(firm in company for firm in CONSULTING_FIRMS):
+                consulting_count += 1
+            else:
+                non_consulting = True
 
         if not has_ml_title and _is_ml_ai_title(role.get("title", "")):
             size = _parse_company_size(role.get("company_size", ""))
@@ -210,7 +209,9 @@ def compute_career_quality(candidate: dict) -> float:
     if _has_upward_title_progression(candidate):
         score += 0.20
 
-    if all_consulting:
+    # Zero out only when every *named* company is a consulting firm —
+    # profiles with missing company names must not be punished.
+    if named_company_count > 0 and consulting_count == named_company_count:
         score = 0.0
 
     return min(score, 1.0)

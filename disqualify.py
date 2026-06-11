@@ -49,15 +49,18 @@ def _all_roles_at_consulting(candidate: dict) -> bool:
     career = candidate.get("career_history", [])
     if not career:
         return False
+    saw_consulting = False
     for role in career:
         company = role.get("company", "")
         if not company:
             continue
         company_lower = company.strip().lower()
-        is_consulting = any(firm in company_lower for firm in CONSULTING_FIRMS)
-        if not is_consulting:
+        if any(firm in company_lower for firm in CONSULTING_FIRMS):
+            saw_consulting = True
+        else:
             return False
-    return True
+    # All-empty company names must not count as all-consulting.
+    return saw_consulting
 
 
 def _is_pure_research(candidate: dict) -> bool:
