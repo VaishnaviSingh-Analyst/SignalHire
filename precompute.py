@@ -91,8 +91,7 @@ def main():
 
     total = 0
     disqualified = []
-    honeypot_count = 0
-    ghost_count = 0
+    disq_counts = {"HONEYPOT": 0, "GHOST": 0, "PURE_RESEARCH": 0}
 
     all_embeddings = []
     all_candidate_ids = []
@@ -119,12 +118,12 @@ def main():
             honeypot, reason = is_honeypot(candidate)
             if honeypot:
                 cid = candidate.get("candidate_id", "unknown")
-                hp_type = "HONEYPOT" if "HONEYPOT" in reason else "GHOST"
-                if hp_type == "HONEYPOT":
-                    honeypot_count += 1
-                else:
-                    ghost_count += 1
-                disqualified.append({"id": cid, "type": hp_type, "reason": reason})
+                # Reasons are prefixed "HONEYPOT:", "GHOST:" or "PURE_RESEARCH:".
+                disq_type = reason.split(":", 1)[0]
+                if disq_type not in disq_counts:
+                    disq_type = "GHOST"
+                disq_counts[disq_type] += 1
+                disqualified.append({"id": cid, "type": disq_type, "reason": reason})
                 continue
 
             cid = candidate.get("candidate_id", "")
@@ -145,11 +144,12 @@ def main():
             if total % CHUNK_SIZE == 0:
                 elapsed = time.time() - t0
                 log.info(
-                    "Processed %d candidates | disqualified: %d | honeypot: %d | ghost: %d | %.1f sec",
+                    "Processed %d candidates | disqualified: %d | honeypot: %d | ghost: %d | research: %d | %.1f sec",
                     total,
                     len(disqualified),
-                    honeypot_count,
-                    ghost_count,
+                    disq_counts["HONEYPOT"],
+                    disq_counts["GHOST"],
+                    disq_counts["PURE_RESEARCH"],
                     elapsed,
                 )
 
@@ -179,8 +179,11 @@ def main():
         json.dump(disqualified, f, indent=2)
 
     elapsed = time.time() - t0
-    log.info("Done. Total: %d | Disqualified: %d | Honeypot: %d | Ghost: %d | Time: %.1f sec",
-             total, len(disqualified), honeypot_count, ghost_count, elapsed)
+    log.info(
+        "Done. Total: %d | Disqualified: %d | Honeypot: %d | Ghost: %d | Research: %d | Time: %.1f sec",
+        total, len(disqualified), disq_counts["HONEYPOT"], disq_counts["GHOST"],
+        disq_counts["PURE_RESEARCH"], elapsed,
+    )
 
 
 if __name__ == "__main__":

@@ -494,12 +494,14 @@ def render_integrity(artifacts):
     disqualified = artifacts.get("disqualified", [])
     honeypots = [d for d in disqualified if d.get("type") == "HONEYPOT"]
     ghosts = [d for d in disqualified if d.get("type") == "GHOST"]
+    research = [d for d in disqualified if d.get("type") == "PURE_RESEARCH"]
 
     st.subheader("Adversarial profile detection")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Disqualified", len(disqualified))
     c2.metric("🍯 Honeypots", len(honeypots), help="Claimed experience impossible vs career timeline")
     c3.metric("👻 Ghosts", len(ghosts), help="Near-empty profile, nothing verified")
+    c4.metric("🔬 Pure research", len(research), help="All research titles, zero deployment evidence")
 
     st.markdown(
         "The dataset seeds fake profiles to catch rankers that trust self-reported "
