@@ -14,16 +14,18 @@ from config import (
     RETRIEVAL_SIGNALS,
 )
 from signals import _build_skill_dict, skill_matches_keyword
+from textmatch import keyword_pattern, matched_keywords, matches_keyword
 
 SNIPPET_RADIUS = 60
 
 
 def _snippet_around(text: str, keyword: str) -> str:
-    idx = text.lower().find(keyword.lower())
-    if idx == -1:
+    m = keyword_pattern(keyword).search(text.lower())
+    if not m:
         return ""
+    idx = m.start()
     start = max(0, idx - SNIPPET_RADIUS)
-    end = min(len(text), idx + len(keyword) + SNIPPET_RADIUS)
+    end = min(len(text), m.end() + SNIPPET_RADIUS)
     snippet = text[start:end].strip()
     snippet = re.sub(r"\s+", " ", snippet)
     if start > 0:
@@ -66,7 +68,7 @@ def _match_criterion(keywords: List[str], skill_dict: Dict[str, float], blob: st
                         "detail": skill_name,
                         "strength": skill_weight,
                     }
-        if (best is None or best["strength"] < 0.3) and kw_lower in blob.lower():
+        if (best is None or best["strength"] < 0.3) and matches_keyword(blob.lower(), kw_lower):
             best = {
                 "source": "text",
                 "keyword": kw,
@@ -98,13 +100,11 @@ def collect_evidence(candidate: dict) -> dict:
 
     production_hits = [
         {"keyword": s, "snippet": _snippet_around(career_text, s)}
-        for s in PRODUCTION_SIGNALS
-        if s.lower() in career_text.lower()
+        for s in matched_keywords(career_text, PRODUCTION_SIGNALS)
     ]
     retrieval_hits = [
         {"keyword": s, "snippet": _snippet_around(career_text, s)}
-        for s in RETRIEVAL_SIGNALS
-        if s.lower() in career_text.lower()
+        for s in matched_keywords(career_text, RETRIEVAL_SIGNALS)
     ]
 
     return {

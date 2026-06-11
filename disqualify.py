@@ -19,6 +19,7 @@ from config import (
     RESEARCHER_TITLE_KW,
     RETRIEVAL_SIGNALS,
 )
+from textmatch import matches_any
 
 
 def parse_year(date_str: Optional[str]) -> Optional[int]:
@@ -94,10 +95,9 @@ def _is_pure_research(candidate: dict) -> bool:
             researcher_count += 1
     if researcher_count < len(career):
         return False
-    desc_text = " ".join((r.get("description", "") or "") for r in career).lower()
-    for kw in PRODUCTION_SIGNALS:
-        if kw.lower() in desc_text:
-            return False
+    desc_text = " ".join((r.get("description", "") or "") for r in career)
+    if matches_any(desc_text, PRODUCTION_SIGNALS):
+        return False
     return True
 
 
@@ -185,11 +185,11 @@ def _is_cv_speech_robotics_only(candidate: dict) -> bool:
             return False
     desc_text = " ".join(
         (r.get("description", "") or "") for r in candidate.get("career_history", [])
-    ).lower()
-    combined = desc_text + " " + " ".join(
-        sk.get("name", "").lower() for sk in candidate.get("skills", [])
     )
-    if any(kw in combined for kw in RETRIEVAL_SIGNALS):
+    combined = desc_text + " " + " ".join(
+        sk.get("name", "") for sk in candidate.get("skills", [])
+    )
+    if matches_any(combined, RETRIEVAL_SIGNALS):
         return False
     title_text_all = " ".join(
         (r.get("title", "") or "") for r in candidate.get("career_history", [])

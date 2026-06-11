@@ -18,6 +18,7 @@ from config import (
     TIER_2_INSTITUTIONS,
 )
 from disqualify import parse_year, sort_career_chronologically
+from textmatch import matched_keywords, matches_keyword
 
 
 def _build_skill_dict(candidate: dict) -> Dict[str, float]:
@@ -67,14 +68,13 @@ def _keyword_match_score(
         for skill_name, skill_weight in skill_dict.items():
             if skill_matches_keyword(kw_lower, skill_name):
                 score = max(score, skill_weight)
-        if kw_lower in blob_lower:
+        if matches_keyword(blob_lower, kw_lower):
             score = max(score, 0.3)
     return score
 
 
 def _scan_signals_in_text(text: str, signals: list) -> float:
-    text_lower = text.lower()
-    matches = sum(1 for s in signals if s.lower() in text_lower)
+    matches = len(matched_keywords(text, signals))
     if matches == 0:
         return 0.0
     return min(matches * 0.03, 0.10)
