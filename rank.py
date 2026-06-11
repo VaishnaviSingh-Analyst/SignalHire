@@ -15,64 +15,7 @@ from config import (
     VALIDATE_SCRIPT,
     WEIGHTS,
 )
-def _top_skills(candidate: dict, max_n: int = 2) -> list:
-    skills = candidate.get("skills", [])
-    scored = []
-    for sk in skills:
-        name = sk.get("name", "")
-        prof = sk.get("proficiency", "beginner")
-        prof_w = {"expert": 3, "advanced": 2, "intermediate": 1, "beginner": 0}.get(prof.lower(), 0)
-        dur = sk.get("duration_months", 0) or 0
-        scored.append((prof_w * 12 + dur, name))
-    scored.sort(reverse=True)
-    return [s[1] for s in scored[:max_n] if s[1]]
-
-
-def _strongest_company(candidate: dict) -> str:
-    career = candidate.get("career_history", [])
-    for role in reversed(career):
-        c = role.get("company", "")
-        if c:
-            return c
-    return candidate.get("profile", {}).get("current_company", "unknown company")
-
-
-def _generate_reasoning(candidate: dict, score: float, subscores: dict, penalty_mult: float) -> str:
-    if not candidate:
-        return ""
-
-    profile = candidate.get("profile", {})
-    signals = candidate.get("redrob_signals", {})
-
-    title = profile.get("current_title", "ML engineer").strip()
-    yoe = profile.get("years_of_experience", 0)
-    company = _strongest_company(candidate)
-    top_skills = _top_skills(candidate, 2)
-    skills_str = " + ".join(top_skills) if top_skills else "ML"
-
-    open_work = signals.get("open_to_work_flag", False)
-    avail_str = "actively looking" if open_work else "passive"
-
-    rr = signals.get("recruiter_response_rate", 0) or 0
-    rr_str = f", {rr:.0%} response rate" if rr > 0 else ""
-
-    notice = signals.get("notice_period_days", 90) or 90
-    notice_str = f", {notice}d notice" if notice < 90 else ""
-
-    reasoning = (
-        f"{yoe}yr {title} with production {skills_str} experience at {company}; "
-        f"{avail_str}{rr_str}{notice_str}."
-    )
-
-    for ch in ["\n", "\r", "\"", "\t"]:
-        reasoning = reasoning.replace(ch, " ")
-    while "  " in reasoning:
-        reasoning = reasoning.replace("  ", " ")
-
-    if len(reasoning) > 300:
-        reasoning = reasoning[:297] + "..."
-
-    return reasoning.strip()
+from evidence import generate_reasoning
 
 
 def load_candidates_by_ids(target_ids) -> dict:
@@ -154,9 +97,7 @@ def main():
         for rank_idx, (score_val, cid) in enumerate(top_k_pairs):
             rank = rank_idx + 1
             cand = top_candidates[rank_idx]
-            ss = subscores_dict.get(cid, {})
-            penalty_mult = ss.get("penalty_multiplier", 1.0)
-            reasoning = _generate_reasoning(cand or {}, score_val, ss, penalty_mult)
+            reasoning = generate_reasoning(cand or {})
             writer.writerow([cid, rank, f"{round(score_val, 3):.3f}", reasoning])
 
     elapsed = time.time() - t0

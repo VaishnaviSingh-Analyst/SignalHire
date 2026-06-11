@@ -17,7 +17,8 @@ from config import (
     TOP_K,
     WEIGHTS,
 )
-from rank import _generate_reasoning, load_candidates_by_ids
+from evidence import collect_evidence, generate_reasoning
+from rank import load_candidates_by_ids
 
 
 @st.cache_data(show_spinner=False)
@@ -167,7 +168,7 @@ def main():
                         }
                         render_score_bars(score_dict)
 
-                    reasoning = _generate_reasoning(cand, score_val, ss, ss.get("penalty_multiplier", 1.0))
+                    reasoning = generate_reasoning(cand)
                     st.caption(f"*{reasoning}*")
 
         with tab2:
