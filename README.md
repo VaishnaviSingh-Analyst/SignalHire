@@ -9,6 +9,14 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-FF4B4B?logo=streamlit)]()
 [![License](https://img.shields.io/badge/license-MIT-lightgrey)]()
 
+📚 **[Full Documentation](https://devanshsrajput.github.io/SignalHire/)**
+
+### 🎬 Walkthrough Video
+
+[<img src="assets/walkthrough-thumbnail.jpg" width="320" alt="SignalHire walkthrough video thumbnail">](https://youtu.be/zaNRSn0xyzU)
+
+Click the thumbnail above to watch the walkthrough on YouTube.
+
 ---
 
 ## ✨ Features at a Glance
