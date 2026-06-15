@@ -1,11 +1,31 @@
 .git
 .gitignore
+.dockerignore
 .venv
 venv
 site
-__pycache__
+__pycache__/
+**/__pycache__/
 *.pyc
 .DS_Store
 artifacts
 output
 data
+
+# Editor / tooling directories
+.vscode
+.claude
+.github
+.serena
+
+# Docs not needed at runtime
+Documentation.md
+Initial-Documentation
+GOOD_FIRST_ISSUES.md
+README.md
+LICENSE
+docmd.config.json
+assets
+
+# Misc project files unused inside the container
+submission_metadata_template.yaml
