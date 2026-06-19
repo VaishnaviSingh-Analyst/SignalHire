@@ -366,7 +366,7 @@ Measured on **NVIDIA RTX 3050 (6 GB) + 12-core CPU**:
 |---|---|---|---|
 | Precompute (100K → 99,965) | GPU (CUDA) | **~4.2 min** | ~400 cand/s |
 | Offset index build | CPU | **~1.5 s** | ~67K lines/s |
-| Ranking + validation | CPU | **~5.0 s** | ~20K cand/s |
+| Ranking + validation | CPU | **~3.1 s** | ~32K cand/s |
 | **Dashboard re-rank** | CPU | **~50 ms** | 2M cand/s |
 
 ---
